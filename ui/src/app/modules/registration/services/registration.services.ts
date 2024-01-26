@@ -1,161 +1,112 @@
-import { Injectable } from "@angular/core";
-import { catchError, map } from "rxjs/operators";
-import { OpenmrsHttpClientService } from "src/app/shared/modules/openmrs-http-client/services/openmrs-http-client.service";
-import { ICARE_CONFIG } from "src/app/shared/resources/config";
-import { Api } from "src/app/shared/resources/openmrs";
-import { head } from "lodash";
-import { Observable, of } from "rxjs";
+import { Injectable } from '@angular/core';
+import {
+  MatSnackBar,
+  MatSnackBarHorizontalPosition,
+  MatSnackBarVerticalPosition,
+} from '@angular/material/snack-bar';
+import { Subject } from "rxjs";
 
-@Injectable({
-  providedIn: "root",
-})
-export class RegistrationService {
-  constructor(private httpClient: OpenmrsHttpClientService) {}
-  createPerson(personPayload) {
-    let url = "person";
+export interface NotificationInterface {
+  type: 'SUCCESS' | 'ERROR' | 'WARNING' | 'LOADING';
+  message: string;
+  duration?: number;
+  action?: string;
+  horizontalPosition?: MatSnackBarHorizontalPosition;
+  verticalPosition?: MatSnackBarVerticalPosition;
+  autoClose?: boolean;
+}
 
-    return this.httpClient.post(url, personPayload);
-  }
+export class Notification implements NotificationInterface {
+  type: 'SUCCESS' | 'ERROR' | 'WARNING' | 'LOADING';
+  message: string;
+  duration: number;
+  action: string;
+  horizontalPosition: MatSnackBarHorizontalPosition;
+  verticalPosition: MatSnackBarVerticalPosition;
+  autoClose: boolean;
+  constructor(options: NotificationInterface) {
+    this.type = options?.type;
+    this.message = options?.message;
+    this.autoClose = options.autoClose || true;
+    this.duration = options?.duration;
+    this.action = options?.action || 'OK';
 
-  createPatient(patientPayload: any, patientUuid?: string): Observable<any> {
-    let url = "patient";
-    return (
-      !patientUuid
-        ? this.httpClient.post(url, patientPayload)
-        : this.updatePatient(patientPayload, patientUuid)
-    ).pipe(
-      map((response) => {
-        return response;
-      }),
-      catchError((error) => of(error))
+    this.horizontalPosition = this.setHorizontalPosition(
+      options?.horizontalPosition,
+      this.type
+    );
+
+    this.verticalPosition = this.setVericalPosition(
+      options?.verticalPosition,
+      this.type
     );
   }
 
-  updatePatient(patientPayload, uuid) {
-    let url = `patient/${uuid}?v=full`;
-    return this.httpClient.post(url, patientPayload).pipe(
-      map((response) => response),
-      catchError((error) => of(error))
-    );
+  get displayDuration(): number {
+    if (this.type === 'ERROR') {
+      return undefined;
+    }
+
+    if (this.duration) {
+      return this.duration;
+    }
+
+    return this.autoClose ? 2000 : undefined;
   }
 
-  getPatientIdentifierTypes() {
-    return this.httpClient.get("patientidentifiertype?v=full").pipe(
-      map((res) => {
-        return (res.results || [])
-          .map((patientIdenfierType: any) => {
-            // In order to get empty results on the format key if the value is null
-            if (patientIdenfierType.format === null) {
-              patientIdenfierType.format = "";
-            }
-            const {
-              uuid,
-              display,
-              required,
-              retired,
-              description,
-              format,
-              uniquenessBehavior,
-              validator,
-              locationBehavior,
-            } = patientIdenfierType;
+  /**
+   * Set horizontal position for notification bar
+   * @param horizontalPosition MatSnackBarHorizontalPosition
+   * @param type 'SUCCESS' | 'ERROR' | 'WARNING' | 'LOADING'
+   */
+  setHorizontalPosition(
+    horizontalPosition: MatSnackBarHorizontalPosition,
+    type?: 'SUCCESS' | 'ERROR' | 'WARNING' | 'LOADING'
+  ): MatSnackBarHorizontalPosition {
+    if (!type) {
+      return horizontalPosition || 'left';
+    }
 
-            if (retired) {
-              return null;
-            }
-
-            return {
-              id: uuid,
-              name: display,
-              required,
-              description,
-              format,
-              uniquenessBehavior,
-              validator,
-              locationBehavior,
-            };
-          })
-          .filter((identifierType) => identifierType);
-      })
-    );
+    return type === 'ERROR' ? 'center' : horizontalPosition || 'left';
   }
 
-  getPersonAttributeTypes() {
-    return this.httpClient.get("personattributetype?limit=60&v=full").pipe(
-      map((res) => {
-        return (res.results || [])
-          .map((personAttributeType: any) => {
-            const { uuid, display, required, retired } = personAttributeType;
+  /**
+   * Set vertical position for notification bar
+   * @param verticalPosition MatSnackBarVerticalPosition
+   * @param type  'SUCCESS' | 'ERROR' | 'WARNING' | 'LOADING'
+   */
+  setVericalPosition(
+    verticalPosition: MatSnackBarVerticalPosition,
+    type?: 'SUCCESS' | 'ERROR' | 'WARNING' | 'LOADING'
+  ): MatSnackBarVerticalPosition {
+    if (!type) {
+      return verticalPosition || 'bottom';
+    }
 
-            if (retired) {
-              return null;
-            }
-
-            return {
-              id: uuid,
-              name: display,
-              required,
-            };
-          })
-          .filter((identifierType) => identifierType);
-      })
-    );
+    return type === 'ERROR' ? 'top' : verticalPosition || 'bottom';
   }
+}
 
-  getAutoFilledPatientIdentifierType() {
-    return this.httpClient
-      .get("systemsetting?q=patient.autoFilledPatientIdentifierType&v=full")
-      .pipe(
-        map((res: any) => {
-          return head((res?.results || []).map((payload) => payload?.value));
-        })
-      );
+@Injectable({ providedIn: 'root' })
+export class NotificationService {
+  constructor(private snackBar: MatSnackBar) {}
+
+  /**
+   * Show notification snack bar for the supplied options
+   * @param notification Notification
+   */
+  show(notification: Notification): void {
+    this.snackBar.open(notification?.message, notification?.action, {
+      duration: notification?.displayDuration,
+      horizontalPosition: notification?.horizontalPosition,
+      verticalPosition: notification?.verticalPosition,
+    });
   }
-
-  getVisitTypes() {
-    let url = "visittype?v=custom:(display,name,uuid)";
-
-    return this.httpClient.get(url).pipe(
-      map((res) => {
-        return res;
-      })
-    );
-  }
-
-  getServicesConceptHierarchy() {
-    let url = `concept/${ICARE_CONFIG?.visit?.serviceConceptUuid}?v=custom:(uuid,display,setMembers:(uuid,display,answers:(uuid,display),setMembers:(uuid,display)))`;
-
-    return this.httpClient.get(url).pipe(
-      map((res) => {
-        return {
-          results: [res],
-        };
-      })
-    );
-  }
-
-  getPaymentOptionsHierarchy() {
-    let url = `concept/${ICARE_CONFIG?.visit?.paymentCategoriesConceptUuid}?v=custom:(uuid,display,setMembers:(uuid,display,answers:(uuid,display),setMembers:(uuid,display)))`;
-
-    return this.httpClient.get(url).pipe(
-      map((res) => {
-        return {
-          results: [res],
-        };
-      })
-    );
-  }
-
-  getRegistrationMRNSource() {
-    return this.httpClient
-      .get("systemsetting?q=icare.registration.mrnSource&v=full")
-      .pipe(
-        map((response) => {
-          return response?.results[0]?.value;
-        }),
-        catchError((error) => {
-          return error;
-        })
-      );
+  private notificationSubject = new Subject<string>();
+  //Observable string stream
+  notification$ = this.notificationSubject.asObservable();
+  //method to trigger notification
+  notify(message: string){
+    this.notificationSubject.next(message);
   }
 }
